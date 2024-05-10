@@ -16,19 +16,29 @@ package org.eclipse.osgi.tests.appadmin;
 import static org.eclipse.osgi.tests.OSGiTestsActivator.PI_OSGI_TESTS;
 import static org.eclipse.osgi.tests.OSGiTestsActivator.addRequiredOSGiTestsBundles;
 import static org.eclipse.osgi.tests.OSGiTestsActivator.getContext;
+import static org.junit.Assert.assertEquals;
+import static org.junit.Assert.assertNotNull;
+import static org.junit.Assert.assertNull;
+import static org.junit.Assert.assertTrue;
+import static org.junit.jupiter.api.Assertions.fail;
 
 import java.util.ArrayList;
 import java.util.Collection;
 import java.util.HashMap;
 import java.util.Map;
-import junit.framework.AssertionFailedError;
-import junit.framework.Test;
-import junit.framework.TestCase;
-import junit.framework.TestSuite;
-import org.eclipse.core.tests.session.ConfigurationSessionTestSuite;
-import org.eclipse.core.tests.session.SetupManager.SetupException;
+import org.eclipse.core.tests.harness.session.CustomSessionConfiguration;
+import org.eclipse.core.tests.harness.session.ExecuteInHost;
+import org.eclipse.core.tests.harness.session.SessionTestExtension;
 import org.eclipse.osgi.tests.OSGiTestsActivator;
 import org.eclipse.osgi.tests.bundles.BundleInstaller;
+import org.junit.jupiter.api.BeforeAll;
+import org.junit.jupiter.api.MethodOrderer;
+import org.junit.jupiter.api.Order;
+import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.TestInstance;
+import org.junit.jupiter.api.TestInstance.Lifecycle;
+import org.junit.jupiter.api.TestMethodOrder;
+import org.junit.jupiter.api.extension.RegisterExtension;
 import org.osgi.framework.Bundle;
 import org.osgi.framework.BundleContext;
 import org.osgi.framework.BundleException;
@@ -42,47 +52,31 @@ import org.osgi.service.application.ScheduledApplication;
 import org.osgi.util.tracker.ServiceTracker;
 import org.osgi.util.tracker.ServiceTrackerCustomizer;
 
-public class ApplicationAdminTest extends TestCase {
-	public static final String testRunnerApp = "org.eclipse.pde.junit.runtime.coretestapplicationnonmain"; //$NON-NLS-1$
-	public static final String testResults = "test.results"; //$NON-NLS-1$
-	public static final String SUCCESS = "success"; //$NON-NLS-1$
-	public static final String ADDED = "added"; //$NON-NLS-1$
-	public static final String MODIFIED = "modified"; //$NON-NLS-1$
-	public static final String REMOVED = "removed"; //$NON-NLS-1$
-	public static final String simpleResults = "test.simpleResults"; //$NON-NLS-1$
-	public static final String[] tests = new String[] { "testSimpleApp", "testInvalidArgs", "testAsyncValue01", //$NON-NLS-1$//$NON-NLS-2$//$NON-NLS-3$
-			"testAsyncValue02", "testAsyncValue03", "testAsyncValue04", "testAsyncValue05", "testAsyncValue06", //$NON-NLS-1$//$NON-NLS-2$//$NON-NLS-3$//$NON-NLS-4$//$NON-NLS-5$
-			"testExitValue01", "testExitValue02", "testExitValue03", "testExitValue04", "testExitValue05", //$NON-NLS-1$//$NON-NLS-2$//$NON-NLS-3$//$NON-NLS-4$//$NON-NLS-5$
-			"testExitValue06", "testExitValue07", "testExitValue08", "testExitValue09", "testExitValue10", //$NON-NLS-1$//$NON-NLS-2$//$NON-NLS-3$//$NON-NLS-4$//$NON-NLS-5$
-			"testGlobalSingleton", "testCardinality01", "testCardinality02", "testMainThreaded01", "testMainThreaded02", //$NON-NLS-1$//$NON-NLS-2$//$NON-NLS-3$//$NON-NLS-4$//$NON-NLS-5$
-			"testHandleEvents01", "testDescriptorEvents01", "testPersistentLock01", "testPersistentLock02", //$NON-NLS-1$//$NON-NLS-2$//$NON-NLS-3$//$NON-NLS-4$
-			"testPersistentLock03", "testPersistentSchedule01", "testPersistentSchedule02", "testPersistentSchedule03", //$NON-NLS-1$//$NON-NLS-2$
-			"testPersistentSchedule04", "testPersistentSchedule05", "testPersistentSchedule06", "testPersistentSchedule07", "testPersistentSchedule08", "testFailedApplication01",
-			"testDestroyBeforeStart01", "testDestroyBeforeStart02" };
+@TestMethodOrder(MethodOrderer.OrderAnnotation.class)
+@TestInstance(Lifecycle.PER_CLASS)
+public class ApplicationAdminTest {
 
-	public static Test suite() {
-		TestSuite suite = new TestSuite(ApplicationAdminTest.class.getName());
+	private static final String testRunnerApp = "org.eclipse.pde.junit.runtime.coretestapplicationnonmain"; //$NON-NLS-1$
+	static final String testResults = "test.results"; //$NON-NLS-1$
+	static final String SUCCESS = "success"; //$NON-NLS-1$
+	private static final String ADDED = "added"; //$NON-NLS-1$
+	private static final String MODIFIED = "modified"; //$NON-NLS-1$
+	private static final String REMOVED = "removed"; //$NON-NLS-1$
+	static final String simpleResults = "test.simpleResults"; //$NON-NLS-1$
 
-		ConfigurationSessionTestSuite appAdminSessionTest = new ConfigurationSessionTestSuite(PI_OSGI_TESTS,
-				ApplicationAdminTest.class.getName());
-		addRequiredOSGiTestsBundles(appAdminSessionTest);
-		appAdminSessionTest.setApplicationId(testRunnerApp);
+	static final CustomSessionConfiguration configuration = SessionTestExtension.createCustomConfiguration();
 
-		try {
-			appAdminSessionTest.getSetup().setSystemProperty("eclipse.application.registerDescriptors", "true"); //$NON-NLS-1$//$NON-NLS-2$
-		} catch (SetupException e) {
-			throw new RuntimeException(e);
-		}
-		// we add tests the hard way so we can control the order of the tests.
-		for (String test : tests) {
-			appAdminSessionTest.addTest(new ApplicationAdminTest(test));
-		}
-		suite.addTest(appAdminSessionTest);
-		return suite;
-	}
-
-	public ApplicationAdminTest(String name) {
-		super(name);
+	@RegisterExtension
+	static final SessionTestExtension extension = SessionTestExtension.forPlugin(PI_OSGI_TESTS)
+			.withApplicationId(testRunnerApp)
+			.withCustomization(configuration)
+			.create();
+	
+	@BeforeAll
+	@ExecuteInHost
+	public static void setup() {
+		addRequiredOSGiTestsBundles(configuration);
+		extension.setSystemProperty("eclipse.application.registerDescriptors", "true");
 	}
 
 	private ApplicationDescriptor getApplication(String appName) {
@@ -123,12 +117,8 @@ public class ApplicationAdminTest extends TestCase {
 		return args;
 	}
 
-	private void fail(String message, Throwable throwable) {
-		AssertionFailedError error = new AssertionFailedError(message);
-		error.initCause(throwable);
-		throw error;
-	}
-
+	@Test
+	@Order(1)
 	public void testSimpleApp() {
 		ApplicationDescriptor app = getApplication(PI_OSGI_TESTS + ".simpleApp"); //$NON-NLS-1$
 		HashMap args = getArguments();
@@ -168,6 +158,8 @@ public class ApplicationAdminTest extends TestCase {
 		}
 	}
 
+	@Test
+	@Order(2)
 	public void testInvalidArgs() {
 		ApplicationDescriptor app = getApplication(PI_OSGI_TESTS + ".simpleApp"); //$NON-NLS-1$
 		HashMap args = new HashMap();
@@ -239,6 +231,8 @@ public class ApplicationAdminTest extends TestCase {
 				false);
 	}
 
+	@Test
+	@Order(20)
 	public void testExitValue01() {
 		// simple getExitValue test
 		ApplicationDescriptor app = getApplication(PI_OSGI_TESTS + ".exitValueApp"); //$NON-NLS-1$
@@ -259,6 +253,8 @@ public class ApplicationAdminTest extends TestCase {
 		assertEquals("exit value is incorrect", ExitValueApp.exitValue, value); //$NON-NLS-1$
 	}
 
+	@Test
+	@Order(21)
 	public void testExitValue02() {
 		// getExitValue test when called from a service listener during service
 		// unregistration
@@ -309,6 +305,8 @@ public class ApplicationAdminTest extends TestCase {
 		assertEquals("value from service unregister is different", value, result[0]); //$NON-NLS-1$
 	}
 
+	@Test
+	@Order(22)
 	public void testExitValue03() {
 		// getExitValue test when called from a service listener during service property
 		// modified (STOPPING)
@@ -362,6 +360,8 @@ public class ApplicationAdminTest extends TestCase {
 		assertEquals("value from service unregister is different", value, result[0]); //$NON-NLS-1$
 	}
 
+	@Test
+	@Order(23)
 	public void testExitValue04() {
 		// getExitValue test with destroy called while waiting for an exit value
 		ApplicationDescriptor app = getApplication(PI_OSGI_TESTS + ".exitValueApp"); //$NON-NLS-1$
@@ -392,6 +392,8 @@ public class ApplicationAdminTest extends TestCase {
 		assertEquals("exit value is incorrect", ExitValueApp.exitValue, value); //$NON-NLS-1$
 	}
 
+	@Test
+	@Order(24)
 	public void testExitValue05() {
 		// getExitValue test with destroy called before getting an exit value
 		ApplicationDescriptor app = getApplication(PI_OSGI_TESTS + ".exitValueApp"); //$NON-NLS-1$
@@ -413,6 +415,8 @@ public class ApplicationAdminTest extends TestCase {
 		assertEquals("exit value is incorrect", ExitValueApp.exitValue, value); //$NON-NLS-1$
 	}
 
+	@Test
+	@Order(25)
 	public void testExitValue06() {
 		// getExitValue test; expecting an ApplicationException because the exit value
 		// is not available
@@ -435,6 +439,8 @@ public class ApplicationAdminTest extends TestCase {
 		}
 	}
 
+	@Test
+	@Order(26)
 	public void testExitValue07() {
 		// getExitValue test; called with timeout 0
 		ApplicationDescriptor app = getApplication(PI_OSGI_TESTS + ".exitValueApp"); //$NON-NLS-1$
@@ -458,6 +464,8 @@ public class ApplicationAdminTest extends TestCase {
 		assertEquals("exit value is incorrect", ExitValueApp.exitValue, value); //$NON-NLS-1$
 	}
 
+	@Test
+	@Order(27)
 	public void testExitValue08() {
 		// getExitValue test; called with timeout -1
 		ApplicationDescriptor app = getApplication(PI_OSGI_TESTS + ".exitValueApp"); //$NON-NLS-1$
@@ -481,6 +489,8 @@ public class ApplicationAdminTest extends TestCase {
 		}
 	}
 
+	@Test
+	@Order(28)
 	public void testExitValue09() {
 		// getExitValue test; application returns null
 		ApplicationDescriptor app = getApplication(PI_OSGI_TESTS + ".exitValueApp"); //$NON-NLS-1$
@@ -504,6 +514,8 @@ public class ApplicationAdminTest extends TestCase {
 		}
 	}
 
+	@Test
+	@Order(29)
 	public void testExitValue10() {
 		// getExitValue test; called with timeout 0 after the result is available
 		ApplicationDescriptor app = getApplication(PI_OSGI_TESTS + ".exitValueApp"); //$NON-NLS-1$
@@ -537,6 +549,8 @@ public class ApplicationAdminTest extends TestCase {
 		assertEquals("exit value is incorrect", ExitValueApp.exitValue, value); //$NON-NLS-1$
 	}
 
+	@Test
+	@Order(10)
 	public void testAsyncValue01() {
 		// setValue test; called with timeout 0 after the result is available
 		ApplicationDescriptor app = getApplication(PI_OSGI_TESTS + ".exitValueApp"); //$NON-NLS-1$
@@ -572,6 +586,8 @@ public class ApplicationAdminTest extends TestCase {
 		assertEquals("exit value is incorrect", ExitValueApp.exitValue, value); //$NON-NLS-1$
 	}
 
+	@Test
+	@Order(11)
 	public void testAsyncValue02() {
 		// setValue test; called with timeout -1
 		ApplicationDescriptor app = getApplication(PI_OSGI_TESTS + ".exitValueApp"); //$NON-NLS-1$
@@ -597,6 +613,8 @@ public class ApplicationAdminTest extends TestCase {
 		}
 	}
 
+	@Test
+	@Order(12)
 	public void testAsyncValue03() {
 		// setValue test; application returns null
 		ApplicationDescriptor app = getApplication(PI_OSGI_TESTS + ".exitValueApp"); //$NON-NLS-1$
@@ -621,6 +639,8 @@ public class ApplicationAdminTest extends TestCase {
 		}
 	}
 
+	@Test
+	@Order(13)
 	public void testAsyncValue04() {
 		// setValue test with destroy called while waiting for an exit value
 		ApplicationDescriptor app = getApplication(PI_OSGI_TESTS + ".exitValueApp"); //$NON-NLS-1$
@@ -653,6 +673,8 @@ public class ApplicationAdminTest extends TestCase {
 		assertEquals("exit value is incorrect", ExitValueApp.exitValue, value); //$NON-NLS-1$
 	}
 
+	@Test
+	@Order(14)
 	public void testAsyncValue05() {
 		// test calling setValue to early
 		ApplicationDescriptor app = getApplication(PI_OSGI_TESTS + ".exitValueApp"); //$NON-NLS-1$
@@ -676,6 +698,8 @@ public class ApplicationAdminTest extends TestCase {
 		assertEquals("exit value is incorrect", ExitValueApp.exitValue, value); //$NON-NLS-1$
 	}
 
+	@Test
+	@Order(15)
 	public void testAsyncValue06() {
 		// test calling setValue with wrong application instance
 		ApplicationDescriptor app = getApplication(PI_OSGI_TESTS + ".exitValueApp"); //$NON-NLS-1$
@@ -700,6 +724,8 @@ public class ApplicationAdminTest extends TestCase {
 		assertEquals("exit value is incorrect", ExitValueApp.exitValue, value); //$NON-NLS-1$
 	}
 
+	@Test
+	@Order(30)
 	public void testGlobalSingleton() {
 		ApplicationDescriptor app = getApplication(PI_OSGI_TESTS + ".globalSingletonApp"); //$NON-NLS-1$
 		HashMap args = getArguments();
@@ -736,10 +762,14 @@ public class ApplicationAdminTest extends TestCase {
 				cardinality + (hasMax ? 0 : 1));
 	}
 
+	@Test
+	@Order(31)
 	public void testCardinality01() {
 		doTestCardinality01(PI_OSGI_TESTS + ".testCardinality01", 5, true); //$NON-NLS-1$
 	}
 
+	@Test
+	@Order(32)
 	public void testCardinality02() {
 		doTestCardinality01(PI_OSGI_TESTS + ".testCardinality02", 20, false); //$NON-NLS-1$
 	}
@@ -762,14 +792,20 @@ public class ApplicationAdminTest extends TestCase {
 		assertEquals("Did not launch the correct # of main app instances", instances.size(), 1); //$NON-NLS-1$
 	}
 
+	@Test
+	@Order(40)
 	public void testMainThreaded01() {
 		doTestMainThreaded(PI_OSGI_TESTS + ".testMainThreaded01"); //$NON-NLS-1$
 	}
 
+	@Test
+	@Order(41)
 	public void testMainThreaded02() {
 		doTestMainThreaded(PI_OSGI_TESTS + ".testMainThreaded02"); //$NON-NLS-1$
 	}
 
+	@Test
+	@Order(50)
 	public void testHandleEvents01() throws InvalidSyntaxException {
 		ApplicationDescriptor app = getApplication(PI_OSGI_TESTS + ".simpleApp"); //$NON-NLS-1$
 		ApplicationHandleTracker handleTracker = new ApplicationHandleTracker(getContext());
@@ -802,6 +838,8 @@ public class ApplicationAdminTest extends TestCase {
 		}
 	}
 
+	@Test
+	@Order(51)
 	public void testDescriptorEvents01() throws InvalidSyntaxException, BundleException {
 		BundleInstaller bundleInstaller = null;
 		try {
@@ -846,11 +884,15 @@ public class ApplicationAdminTest extends TestCase {
 		}
 	}
 
+	@Test
+	@Order(60)
 	public void testPersistentLock01() {
 		ApplicationDescriptor app = getApplication(PI_OSGI_TESTS + ".simpleApp"); //$NON-NLS-1$
 		app.lock();
 	}
 
+	@Test
+	@Order(61)
 	public void testPersistentLock02() {
 		ApplicationDescriptor app = getApplication(PI_OSGI_TESTS + ".simpleApp"); //$NON-NLS-1$
 		try {
@@ -869,6 +911,8 @@ public class ApplicationAdminTest extends TestCase {
 		}
 	}
 
+	@Test
+	@Order(62)
 	public void testPersistentLock03() {
 		ApplicationDescriptor app = getApplication(PI_OSGI_TESTS + ".simpleApp"); //$NON-NLS-1$
 		try {
@@ -879,6 +923,8 @@ public class ApplicationAdminTest extends TestCase {
 		}
 	}
 
+	@Test
+	@Order(70)
 	public void testPersistentSchedule01() {
 		ApplicationDescriptor app = getApplication(PI_OSGI_TESTS + ".simpleApp"); //$NON-NLS-1$
 		try {
@@ -892,6 +938,8 @@ public class ApplicationAdminTest extends TestCase {
 		}
 	}
 
+	@Test
+	@Order(71)
 	public void testPersistentSchedule02() throws InvalidSyntaxException {
 		ScheduledApplication scheduledApp = getScheduleApplication("schedule.1", true); //$NON-NLS-1$
 		ApplicationHandleTracker handleTracker = new ApplicationHandleTracker(getContext());
@@ -930,6 +978,8 @@ public class ApplicationAdminTest extends TestCase {
 		}
 	}
 
+	@Test
+	@Order(72)
 	public void testPersistentSchedule03() {
 		ScheduledApplication scheduledApp = getScheduleApplication("schedule.1", false); //$NON-NLS-1$
 		if (scheduledApp != null) {
@@ -938,6 +988,8 @@ public class ApplicationAdminTest extends TestCase {
 		}
 	}
 
+	@Test
+	@Order(73)
 	public void testPersistentSchedule04() {
 		ApplicationDescriptor app = getApplication(PI_OSGI_TESTS + ".simpleApp"); //$NON-NLS-1$
 		try {
@@ -954,6 +1006,8 @@ public class ApplicationAdminTest extends TestCase {
 		}
 	}
 
+	@Test
+	@Order(74)
 	public void testPersistentSchedule05() throws InvalidSyntaxException {
 		ScheduledApplication scheduledApp = getScheduleApplication("schedule.2", true); //$NON-NLS-1$
 		ApplicationHandleTracker handleTracker = new ApplicationHandleTracker(getContext());
@@ -1016,6 +1070,8 @@ public class ApplicationAdminTest extends TestCase {
 		}
 	}
 
+	@Test
+	@Order(75)
 	public void testPersistentSchedule06() {
 		ScheduledApplication scheduledApp = getScheduleApplication("schedule.2", false); //$NON-NLS-1$
 		if (scheduledApp != null) {
@@ -1024,6 +1080,8 @@ public class ApplicationAdminTest extends TestCase {
 		}
 	}
 
+	@Test
+	@Order(76)
 	public void testPersistentSchedule07() {
 		ApplicationDescriptor app = getApplication(PI_OSGI_TESTS + ".simpleApp"); //$NON-NLS-1$
 		try {
@@ -1041,6 +1099,8 @@ public class ApplicationAdminTest extends TestCase {
 		}
 	}
 
+	@Test
+	@Order(77)
 	public void testPersistentSchedule08() {
 		ScheduledApplication scheduledApp = getScheduleApplication("schedule.duplicate1", true); //$NON-NLS-1$
 		try {
@@ -1056,6 +1116,8 @@ public class ApplicationAdminTest extends TestCase {
 		}
 	}
 
+	@Test
+	@Order(80)
 	public void testFailedApplication01() throws InvalidSyntaxException {
 		ApplicationDescriptor app = getApplication(PI_OSGI_TESTS + ".failedApp"); //$NON-NLS-1$
 		ApplicationHandleTracker handleTracker = new ApplicationHandleTracker(getContext());
@@ -1085,6 +1147,8 @@ public class ApplicationAdminTest extends TestCase {
 		}
 	}
 
+	@Test
+	@Order(81)
 	public void testDestroyBeforeStart01() throws InvalidSyntaxException {
 		ApplicationDescriptor app = getApplication(PI_OSGI_TESTS + ".simpleApp"); //$NON-NLS-1$
 		HashMap args = getArguments();
@@ -1121,6 +1185,8 @@ public class ApplicationAdminTest extends TestCase {
 		assertNull("Check application result", result); //$NON-NLS-1$
 	}
 
+	@Test
+	@Order(82)
 	public void testDestroyBeforeStart02() throws InvalidSyntaxException {
 		ApplicationDescriptor app = getApplication(PI_OSGI_TESTS + ".testMainThreaded01"); //$NON-NLS-1$
 		HashMap args = getArguments();
